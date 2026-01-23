@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  qwen3-vl-api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    image: qwen3-vl-api:latest
+    container_name: qwen3-vl-api
+    restart: unless-stopped
+    
+    # GPU support
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # Port mapping
+    ports:
+      - "8000:8000"
+    
+    # Environment variables
+    environment:
+      - QWEN_MODEL_PATH=${QWEN_MODEL_PATH:-Qwen/Qwen2-VL-7B-Instruct}
+      - HF_HOME=/app/.cache/huggingface
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - TORCH_HOME=/app/.cache/torch
+      # Optional: HuggingFace mirror for faster downloads
+      - HF_ENDPOINT=${HF_ENDPOINT:-}
+    
+    # Volume mounts
+    volumes:
+      # Persistent model cache (survives container restarts)
+      - qwen3_vl_models:/app/.cache/huggingface
+      # Optional: Mount local model directory if you have pre-downloaded models
+      # - /path/to/local/models:/app/models:ro
+      # Optional: Mount custom models
+      # - ${QWEN_MODEL_PATH}:/app/models:ro
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    
+    # Resource limits (optional, adjust based on your system)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 64G
+    #     reservations:
+    #       memory: 32G
+
+# Named volumes for persistence
+volumes:
+  qwen3_vl_models:
+    driver: local

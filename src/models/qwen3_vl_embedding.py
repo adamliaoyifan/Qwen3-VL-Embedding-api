@@ -327,37 +327,87 @@ class Qwen3VLEmbedder():
 
     # Preprocess input conversations for model consumption
     def _preprocess_inputs(self, conversations: List[List[Dict]]) -> Dict[str, torch.Tensor]:
-        text = self.processor.apply_chat_template(
-            conversations, add_generation_prompt=True, tokenize=False
-        )
+        # Process each conversation separately and apply chat template
+        texts = []
+        for conv in conversations:
+            try:
+                text = self.processor.apply_chat_template(
+                    conv, add_generation_prompt=True, tokenize=False
+                )
+                texts.append(text)
+            except Exception as e:
+                logger.error(f"Error applying chat template: {e}")
+                texts.append("NULL")
+
+        # Process vision information from all conversations
+        all_images = []
+        all_videos = []
+        all_video_metadata = []
+        video_kwargs = {'do_sample_frames': False}
+        
+        for conv in conversations:
+            try:
+                images, video_inputs, vid_kwargs = process_vision_info(
+                    conv, 
+                    image_patch_size=16,
+                    return_video_metadata=True, 
+                    return_video_kwargs=True
+                )
+                
+                # Collect images
+                if images is not None:
+                    if isinstance(images, list):
+                        all_images.extend(images)
+                    else:
+                        all_images.append(images)
+                
+                # Collect videos
+                if video_inputs is not None:
+                    for video_input in video_inputs:
+                        if isinstance(video_input, tuple) and len(video_input) == 2:
+                            video, metadata = video_input
+                            all_videos.append(video)
+                            all_video_metadata.append(metadata)
+                        else:
+                            all_videos.append(video_input)
+                
+                # Update video kwargs
+                if vid_kwargs:
+                    video_kwargs.update(vid_kwargs)
+                    
+            except Exception as e:
+                logger.warning(f"Error in processing vision info for conversation: {e}")
+                continue
+
+        # Prepare final inputs
+        images_input = all_images if all_images else None
+        videos_input = all_videos if all_videos else None
+        video_metadata_input = all_video_metadata if all_video_metadata else None
 
         try:
-            images, video_inputs, video_kwargs = process_vision_info(
-                conversations, image_patch_size=16,
-                return_video_metadata=True, return_video_kwargs=True
+            inputs = self.processor(
+                text=texts, 
+                images=images_input, 
+                videos=videos_input, 
+                video_metadata=video_metadata_input, 
+                truncation=True, 
+                max_length=self.max_length, 
+                padding=True, 
+                do_resize=False, 
+                return_tensors='pt',
+                **video_kwargs
             )
         except Exception as e:
-            logger.error(f"Error in processing vision info: {e}")
-            images = None
-            video_inputs = None
-            video_kwargs = {'do_sample_frames': False}
-            text = self.processor.apply_chat_template(
-                [{'role': 'user', 'content': [{'type': 'text', 'text': 'NULL'}]}], 
-                add_generation_prompt=True, tokenize=False
+            logger.error(f"Error in processor: {e}")
+            # Fallback to text-only processing
+            inputs = self.processor(
+                text=texts, 
+                truncation=True, 
+                max_length=self.max_length, 
+                padding=True, 
+                return_tensors='pt'
             )
-
-        if video_inputs is not None:
-            videos, video_metadata = zip(*video_inputs)
-            videos = list(videos)
-            video_metadata = list(video_metadata)
-        else:
-            videos, video_metadata = None, None
-
-        inputs = self.processor(
-            text=text, images=images, videos=videos, video_metadata=video_metadata, truncation=True, 
-            max_length=self.max_length, padding=True, do_resize=False, return_tensors='pt',
-            **video_kwargs
-        )
+        
         return inputs
 
     # Pool the last hidden state by attention mask for embeddings
@@ -370,24 +420,47 @@ class Qwen3VLEmbedder():
         return hidden_state[row, col]
 
     # Process inputs to generate normalized embeddings
-    def process(self, inputs: List[Dict[str, Any]], normalize: bool = True) -> tuple:
-        conversations = [self.format_model_input(
-            text=ele.get('text'),
-            image=ele.get('image'),
-            video=ele.get('video'),
-            instruction=ele.get('instruction'),
-            fps=ele.get('fps'),
-            max_frames=ele.get('max_frames')
-        ) for ele in inputs]
+    def process(self, inputs: List[Dict[str, Any]], normalize: bool = True) -> torch.Tensor:
+        """
+        Process inputs and generate embeddings
+        
+        Args:
+            inputs: List of input dictionaries containing 'text', 'image', 'video', etc.
+            normalize: Whether to normalize the embeddings
+            
+        Returns:
+            Tensor of embeddings with shape (batch_size, embedding_dim)
+        """
+        try:
+            # Format each input into conversation format
+            conversations = []
+            for ele in inputs:
+                conv = self.format_model_input(
+                    text=ele.get('text'),
+                    image=ele.get('image'),
+                    video=ele.get('video'),
+                    instruction=ele.get('instruction'),
+                    fps=ele.get('fps'),
+                    max_frames=ele.get('max_frames')
+                )
+                conversations.append(conv)
 
-        processed_inputs = self._preprocess_inputs(conversations)
-        processed_inputs = {k: v.to(self.model.device) for k, v in processed_inputs.items()}
+            # Preprocess all conversations
+            processed_inputs = self._preprocess_inputs(conversations)
+            processed_inputs = {k: v.to(self.model.device) for k, v in processed_inputs.items()}
 
-        outputs = self.forward(processed_inputs)
-        embeddings = self._pooling_last(outputs['last_hidden_state'], outputs['attention_mask'])
+            # Forward pass through model
+            outputs = self.forward(processed_inputs)
+            
+            # Pool the last hidden states
+            embeddings = self._pooling_last(outputs['last_hidden_state'], outputs['attention_mask'])
 
-        # Normalize the embeddings if specified
-        if normalize:
-            embeddings = F.normalize(embeddings, p=2, dim=-1)
+            # Normalize the embeddings if specified
+            if normalize:
+                embeddings = F.normalize(embeddings, p=2, dim=-1)
 
-        return embeddings
+            return embeddings
+            
+        except Exception as e:
+            logger.error(f"Error in process(): {e}", exc_info=True)
+            raise
