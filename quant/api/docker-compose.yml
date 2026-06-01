@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  qwen3-vl-service:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    container_name: qwen3-vl-inference
+    image: qwen3-vl-inference:latest
+    
+    # GPU support (requires nvidia-docker)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Environment variables
+    environment:
+      - QWEN_MODEL_PATH=${QWEN_MODEL_PATH:-Qwen/Qwen2-VL-7B-Instruct}
+      - API_KEY=${API_KEY:-}
+      - HF_ENDPOINT=${HF_ENDPOINT:-}
+      - CUDA_VISIBLE_DEVICES=0
+      - TORCH_HOME=/app/models/.cache/torch
+      - HF_HOME=/app/models/.cache/huggingface
+    
+    # Port mapping (host:container)
+    ports:
+      - "8000:8000"
+    
+    # Volume mounts for model persistence
+    volumes:
+      - ./models:/app/models
+      - model_cache:/app/models/.cache
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          memory: 32G
+        reservations:
+          memory: 16G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  model_cache:
+    driver: local
