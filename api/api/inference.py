@@ -12,7 +12,8 @@ from PIL import Image
 from io import BytesIO
 import base64
 import unicodedata
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoTokenizer
+from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLForConditionalGeneration
+from transformers import AutoProcessor, AutoTokenizer
 from qwen_vl_utils import process_vision_info
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class Qwen3VLInference:
 
     def __init__(
         self,
-        model_name_or_path: str = "Qwen/Qwen2-VL-7B-Instruct",
+        model_name_or_path: str = "Qwen/Qwen3-VL-8B-Instruct",
         torch_dtype: Optional[str] = "bfloat16",
         attn_implementation: Optional[str] = "flash_attention_2",
         device: Optional[str] = None,
@@ -53,9 +54,18 @@ class Qwen3VLInference:
 
         logger.info(f"Loading model from {model_name_or_path}...")
 
+        # 检测是否为本地路径
+        import os
+        is_local_path = os.path.isdir(model_name_or_path) or os.path.exists(model_name_or_path)
+        
         # 加载processor
+        processor_kwargs = {"trust_remote_code": True}
+        if is_local_path:
+            processor_kwargs["local_files_only"] = True
+            logger.info("Loading from local path")
+        
         self.processor = AutoProcessor.from_pretrained(
-            model_name_or_path, trust_remote_code=True
+            model_name_or_path, **processor_kwargs
         )
 
         # 加载模型 - 使用生成模型而不是嵌入模型
@@ -64,13 +74,16 @@ class Qwen3VLInference:
             "trust_remote_code": True,
             "device_map": "auto" if self.device == "cuda" else self.device,
         }
+        if is_local_path:
+            model_kwargs["local_files_only"] = True
+        
         if attn_implementation is not None:
             try:
                 model_kwargs["attn_implementation"] = attn_implementation
             except Exception as e:
                 logger.warning(f"Failed to use {attn_implementation}, using default: {e}")
         
-        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+        self.model = Qwen3VLForConditionalGeneration.from_pretrained(
             model_name_or_path,
             **model_kwargs
         )
@@ -89,7 +102,7 @@ class Qwen3VLInference:
         image: Optional[Union[str, Image.Image]] = None,
     ) -> List[Dict]:
         """
-        格式化消息为Qwen2-VL的标准格式
+        格式化消息为Qwen3-VL的标准格式
 
         Args:
             text: 文本输入
@@ -225,6 +238,136 @@ class Qwen3VLInference:
 
         except Exception as e:
             logger.error(f"Error during generation: {e}", exc_info=True)
+            raise
+
+    def format_multi_image_message(
+        self,
+        text: str,
+        images: List[Image.Image],
+    ) -> List[Dict]:
+        """
+        格式化多图消息为Qwen3-VL的标准格式
+
+        Args:
+            text: 文本输入
+            images: PIL Image列表
+
+        Returns:
+            格式化的消息列表
+        """
+        content = []
+        for img in images:
+            content.append({"type": "image", "image": img})
+        content.append({"type": "text", "text": text})
+
+        return [{"role": "user", "content": content}]
+
+    @torch.no_grad()
+    def generate_multi_image(
+        self,
+        prompt: str,
+        images: List[Image.Image],
+        max_new_tokens: int = 1024,
+        temperature: float = 0.7,
+        top_p: float = 0.8,
+    ) -> str:
+        """
+        多图推理生成回答
+
+        Args:
+            prompt: 输入提示
+            images: PIL Image列表
+            max_new_tokens: 最大生成token数
+            temperature: 温度参数
+            top_p: top_p采样参数
+
+        Returns:
+            生成的文本
+        """
+        try:
+            messages = self.format_multi_image_message(text=prompt, images=images)
+            inputs = self._preprocess_inputs(messages)
+            inputs = inputs.to(self.model.device)
+
+            generated_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                do_sample=temperature > 0,
+            )
+
+            generated_ids_trimmed = [
+                out_ids[len(in_ids):]
+                for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+            ]
+
+            response = self.processor.batch_decode(
+                generated_ids_trimmed,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )[0]
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Error during multi-image generation: {e}", exc_info=True)
+            raise
+
+    @torch.no_grad()
+    def generate_from_messages(
+        self,
+        messages: List[Dict],
+        max_new_tokens: int = 1024,
+        temperature: float = 0.7,
+        top_p: float = 0.8,
+    ) -> str:
+        """
+        Generate a response from a pre-built multi-turn messages list.
+
+        Messages follow Qwen3-VL format:
+        [
+            {"role": "user", "content": [{"type": "image", "image": <PIL>}, {"type": "text", "text": "..."}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "..."}]},
+            {"role": "user", "content": [{"type": "text", "text": "follow-up"}]},
+        ]
+
+        Args:
+            messages: Multi-turn message list.
+            max_new_tokens: Max tokens to generate.
+            temperature: Sampling temperature.
+            top_p: Top-p sampling parameter.
+
+        Returns:
+            Generated text response.
+        """
+        try:
+            inputs = self._preprocess_inputs(messages)
+            inputs = inputs.to(self.model.device)
+
+            generated_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                do_sample=temperature > 0,
+            )
+
+            generated_ids_trimmed = [
+                out_ids[len(in_ids):]
+                for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+            ]
+
+            response = self.processor.batch_decode(
+                generated_ids_trimmed,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )[0]
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Error during multi-turn generation: {e}", exc_info=True)
             raise
 
     @staticmethod

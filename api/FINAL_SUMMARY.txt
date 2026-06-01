@@ -122,7 +122,7 @@ curl -X POST http://localhost:8000/v1/image-inference \
     服务会自动从 HuggingFace 下载
     
   方式2: 使用本地模型
-    export QWEN_MODEL_PATH="/path/to/Qwen2-VL-7B-Instruct"
+    export QWEN_MODEL_PATH="Qwen/Qwen3-VL-8B-Instruct"
     ./start_service.sh
 
 ================================================================================

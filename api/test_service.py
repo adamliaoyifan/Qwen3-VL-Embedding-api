@@ -5,6 +5,7 @@
 import requests
 import json
 import base64
+import os
 from pathlib import Path
 from PIL import Image
 import io
@@ -13,8 +14,9 @@ import io
 class Qwen3VLClient:
     """Qwen3-VL 推理服务客户端"""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:8000", api_key: str = None):
         self.base_url = base_url
+        self.api_key = api_key or os.environ.get("API_KEY")
     
     def health_check(self):
         """健康检查"""
@@ -30,13 +32,16 @@ class Qwen3VLClient:
                       temperature: float = 0.7, top_p: float = 0.8):
         """纯文本推理"""
         url = f"{self.base_url}/v1/text-inference"
+        params = {}
+        if self.api_key:
+            params["api_key"] = self.api_key
         data = {
             "prompt": prompt,
             "max_new_tokens": max_new_tokens,
             "temperature": temperature,
             "top_p": top_p
         }
-        response = requests.post(url, json=data)
+        response = requests.post(url, json=data, params=params)
         return response.json()
     
     def image_inference(self, image_path: str, prompt: str, 
@@ -44,6 +49,9 @@ class Qwen3VLClient:
                        top_p: float = 0.8):
         """图片+文本推理 (文件上传)"""
         url = f"{self.base_url}/v1/image-inference"
+        params = {}
+        if self.api_key:
+            params["api_key"] = self.api_key
         
         with open(image_path, 'rb') as f:
             files = {'image': f}
@@ -53,7 +61,7 @@ class Qwen3VLClient:
                 'temperature': temperature,
                 'top_p': top_p
             }
-            response = requests.post(url, files=files, data=data)
+            response = requests.post(url, files=files, data=data, params=params)
         
         return response.json()
     
@@ -62,6 +70,9 @@ class Qwen3VLClient:
                               top_p: float = 0.8):
         """图片+文本推理 (Base64编码)"""
         url = f"{self.base_url}/v1/image-inference-base64"
+        params = {}
+        if self.api_key:
+            params["api_key"] = self.api_key
         
         # 读取图片并转换为base64
         with open(image_path, 'rb') as f:
@@ -76,7 +87,7 @@ class Qwen3VLClient:
             "top_p": top_p
         }
         
-        response = requests.post(url, json=data)
+        response = requests.post(url, json=data, params=params)
         return response.json()
     
     def image_url_inference(self, image_url: str, prompt: str,
@@ -84,6 +95,9 @@ class Qwen3VLClient:
                            top_p: float = 0.8):
         """图片+文本推理 (URL)"""
         url = f"{self.base_url}/v1/image-url-inference"
+        params = {}
+        if self.api_key:
+            params["api_key"] = self.api_key
         
         data = {
             'image_url': image_url,
@@ -93,7 +107,7 @@ class Qwen3VLClient:
             'top_p': top_p
         }
         
-        response = requests.post(url, data=data)
+        response = requests.post(url, data=data, params=params)
         return response.json()
 
 

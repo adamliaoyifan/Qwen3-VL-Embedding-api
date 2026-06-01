@@ -14,6 +14,7 @@ from pathlib import Path
 # ============================================================
 API_URL = "http://localhost:8000"
 IMAGE_PATH = "/home/adamliao/Desktop/近照.jpg"  # 修改为你的图片路径
+API_KEY = os.environ.get("API_KEY")  # 从环境变量获取API密钥
 
 # ============================================================
 # 示例 1: 上传 .jpg 文件进行推理
@@ -43,11 +44,16 @@ def example_1_image_file_inference():
         print(f"   - 提示: {data['prompt']}")
         print(f"   - 最大tokens: {data['max_new_tokens']}\n")
         
+        params = {}
+        if API_KEY:
+            params["api_key"] = API_KEY
+        
         try:
             response = requests.post(
                 f"{API_URL}/v1/image-inference",
                 files=files,
                 data=data,
+                params=params,
                 timeout=120
             )
             
@@ -102,11 +108,16 @@ def example_2_batch_processing():
                 'max_new_tokens': 128,
             }
             
+            params = {}
+            if API_KEY:
+                params["api_key"] = API_KEY
+            
             try:
                 response = requests.post(
                     f"{API_URL}/v1/image-inference",
                     files=files,
                     data=data,
+                    params=params,
                     timeout=120
                 )
                 
@@ -149,10 +160,15 @@ def example_3_base64_inference():
         "top_p": 0.8
     }
     
+    params = {}
+    if API_KEY:
+        params["api_key"] = API_KEY
+    
     try:
         response = requests.post(
             f"{API_URL}/v1/image-inference-base64",
             json=payload,
+            params=params,
             timeout=120
         )
         
@@ -186,10 +202,15 @@ def example_4_text_inference():
     print(f"📤 发送纯文本请求")
     print(f"   - 提示: {payload['prompt']}\n")
     
+    params = {}
+    if API_KEY:
+        params["api_key"] = API_KEY
+    
     try:
         response = requests.post(
             f"{API_URL}/v1/text-inference",
             json=payload,
+            params=params,
             timeout=60
         )
         

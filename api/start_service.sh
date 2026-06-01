@@ -9,6 +9,15 @@ echo "Qwen3-VL 推理服务启动脚本"
 echo "========================================"
 echo ""
 
+# 自动探测本地模型路径（优先使用用户已设置的环境变量）
+if [ -z "$QWEN_MODEL_PATH" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+    DEFAULT_MODEL_PATH="$PROJECT_ROOT/models/Qwen3-VL-8B-Instruct"
+    if [ -d "$DEFAULT_MODEL_PATH" ]; then
+        export QWEN_MODEL_PATH="$DEFAULT_MODEL_PATH"
+    fi
+fi
 # 检查 Python
 if ! command -v python &> /dev/null; then
     echo "错误: 未找到 Python"
@@ -31,11 +40,34 @@ if [ $? -ne 0 ]; then
 fi
 echo "✓ 依赖检查完成"
 
+# 设置API密钥 (推荐)
+echo ""
+echo "[2/4] 配置API密钥..."
+if [ -z "$API_KEY" ]; then
+    echo "⚠ 警告: API_KEY 未设置，服务将不受保护！"
+    echo ""
+    echo "建议设置API密钥以保护服务:"
+    echo "  export API_KEY=\"adamliaoyifan\""
+    echo ""
+    read -p "是否现在设置API密钥? (y/n): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        read -sp "请输入API密钥: " api_key_input
+        echo
+        export API_KEY="$api_key_input"
+        echo "✓ API密钥已设置"
+    else
+        echo "⚠ 继续启动未受保护的服务..."
+    fi
+else
+    echo "✓ API密钥已配置"
+fi
+
 # 设置模型路径 (可选)
 echo ""
-echo "[2/3] 配置模型..."
+echo "[3/4] 配置模型..."
 if [ -z "$QWEN_MODEL_PATH" ]; then
-    echo "使用默认模型: Qwen/Qwen2-VL-7B-Instruct (将自动从 HuggingFace 下载)"
+    echo "使用默认模型: Qwen/Qwen3-VL-8B-Instruct (将自动从 HuggingFace 下载)"
     echo ""
     echo "如需使用本地模型，请设置环境变量:"
     echo "  export QWEN_MODEL_PATH=\"/path/to/model\""
@@ -51,9 +83,17 @@ if [ -z "$HF_ENDPOINT" ]; then
 fi
 
 echo ""
-echo "[3/3] 启动服务..."
+echo "[4/4] 启动服务..."
 echo "服务地址: http://0.0.0.0:8000"
 echo "API文档: http://localhost:8000/docs"
+if [ -n "$API_KEY" ]; then
+    echo "API密钥: 已启用 (从环境变量读取)"
+    echo ""
+    echo "使用API密钥调用服务:"
+    echo "  curl 'http://localhost:8000/v1/text-inference?api_key=$API_KEY' ..."
+else
+    echo "API密钥: 未设置 (服务未受保护)"
+fi
 echo ""
 echo "按 Ctrl+C 停止服务"
 echo "========================================"

@@ -14,6 +14,9 @@ from pathlib import Path
 # API服务地址
 API_URL = "http://localhost:8000"
 
+# API密钥 (从环境变量获取，如果没有则使用None)
+API_KEY = os.environ.get("API_KEY")
+
 def test_health_check():
     """测试健康检查"""
     print("\n" + "="*60)
@@ -62,9 +65,14 @@ def test_text_inference():
         
         print(f"请求数据:\n{json.dumps(payload, indent=2, ensure_ascii=False)}\n")
         
+        params = {}
+        if API_KEY:
+            params["api_key"] = API_KEY
+        
         response = requests.post(
             f"{API_URL}/v1/text-inference",
             json=payload,
+            params=params,
             timeout=30
         )
         
@@ -109,10 +117,15 @@ def test_image_inference_file(image_path: str):
             print(f"  - prompt: {data['prompt']}")
             print(f"  - max_new_tokens: {data['max_new_tokens']}\n")
             
+            params = {}
+            if API_KEY:
+                params["api_key"] = API_KEY
+            
             response = requests.post(
                 f"{API_URL}/v1/image-inference",
                 files=files,
                 data=data,
+                params=params,
                 timeout=60
             )
         
@@ -161,9 +174,14 @@ def test_image_inference_base64(image_path: str):
         print(f"  - prompt: {payload['prompt']}")
         print(f"  - image_base64: {image_base64[:50]}... (长度: {len(image_base64)})\n")
         
+        params = {}
+        if API_KEY:
+            params["api_key"] = API_KEY
+        
         response = requests.post(
             f"{API_URL}/v1/image-inference-base64",
             json=payload,
+            params=params,
             timeout=60
         )
         
