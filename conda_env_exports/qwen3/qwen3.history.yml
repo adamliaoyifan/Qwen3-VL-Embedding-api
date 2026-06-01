@@ -1,0 +1,5 @@
+name: qwen3
+channels:
+  - defaults
+dependencies:
+  - python=3.12

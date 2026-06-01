@@ -1,0 +1,3 @@
+Python 3.12.13
+torch 2.8.0+cu128 cuda_available True cuda 12.8
+imports ok: transformers fastapi qwen_vl_utils
